@@ -73,29 +73,54 @@ print('Initializing model...')
 model, optimizer, criterion_tar, criterion_task, best_model, best_optimizer = utils.initialize_training(prop)
 print('Model intialized...')
 
-    #print('Training start...')
-    #utils.training(model, optimizer, criterion_tar, criterion_task, best_model, best_optimizer, X_train_task, y_train_task, X_test, y_test, prop)
-    #print('Training complete...')
-    #torch.save(model,'train_model.pth')
-    
-    #new_model =  multitask_transformer_class.MultitaskTransformerModel(prop['task_type'], prop['device'], prop['nclasses'], prop['seq_len'], prop['batch'], \
-    #    prop['input_size'], prop['emb_size'], prop['nhead'], prop['nhid'], prop['nhid_tar'], prop['nhid_task'], prop['nlayers'], prop['dropout']).to(prop['device'])
-    
-    #new_model = torch.load('train_model.pth')
-    #new_model.load_state_dict(torch.load('train_model.pth'))    
-    #$print('Testing started')
-    #results = utils.test(new_model, X_test, y_test, prop['batch'], prop['nclasses'], criterion_task, prop['task_type'] , prop['device'], prop['avg'])
-    #print(results)
-    #print('Testing complete...')
+print('Training start...')
+utils.training(model, optimizer, criterion_tar, criterion_task, best_model, best_optimizer, X_train_task, y_train_task, X_test, y_test, prop)
+print('Training complete...')
 
-    #model, X_test, y_test, batch, nclasses, criterion_task, task_type, device, avg
-    #model, optimizer, criterion_tar, criterion_task, best_model, best_optimizer, X_train_task, y_train_task, X_test, y_test, prop):
+#for batchsize 16
+prop['batch'] = 16
+prop['epochs'] = 100
+
+
+print('Data preprocessing start...')
+X_train_task, y_train_task, X_test, y_test = utils.preprocess(prop, X_train, y_train, X_test, y_test)
+print(X_train_task.shape, y_train_task.shape, X_test.shape, y_test.shape)
+print('Data preprocessing complete...')
+
+prop['nclasses'] = torch.max(y_train_task).item() + 1 if prop['task_type'] == 'classification' else None
+prop['dataset'], prop['seq_len'], prop['input_size'] = prop['dataset'], X_train_task.shape[1], X_train_task.shape[2]
+prop['device'] = torch.device('cuda:0' if torch.cuda.is_available() else "cpu")
+    
+print('Initializing model...')
+model, optimizer, criterion_tar, criterion_task, best_model, best_optimizer = utils.initialize_training(prop)
+print('Model intialized...')
+
+device = torch.device('cuda:0')  # or 'cuda:0' if using GPU
+old_model = torch.load('train_model.pth', map_location=device)
+state_dict = old_model.state_dict()
+        # Adjust the state dictionary to match the new model's BatchNorm sizes
+new_state_dict = {}
+
+for key, value in state_dict.items():
+            if 'running_mean' in key or 'running_var' in key or 'weight' in key or 'bias' in key:
+                if value.shape == torch.Size([64]):  # Check if this is the problematic size
+                    new_state_dict[key] = value[:16]  # Slice to match the expected shape of 16
+                else:
+                    new_state_dict[key] = value
+            else:
+                new_state_dict[key] = value
+
+        # Load the adjusted state dictionary into the model
+model.load_state_dict(new_state_dict, strict=False)
+utils.training(model, optimizer, criterion_tar, criterion_task, best_model, best_optimizer, X_train_task, y_train_task, X_test, y_test, prop)
+
+
 
     
 class Config:
         def __init__(self):
             self.dataset = 'AF'
-            self.batch = 64
+            self.batch = 16
             self.lr = 0.001
             self.nlayers = 4
             self.emb_size = 256

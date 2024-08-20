@@ -20,7 +20,7 @@ parser.add_argument('--nhead', type=int, default=8)
 parser.add_argument('--task_rate', type=float, default=0.5)
 parser.add_argument('--masking_ratio', type=float, default=0.15)
 parser.add_argument('--lamb', type=float, default=0.8)
-parser.add_argument('--epochs', type=int, default=100)
+parser.add_argument('--epochs', type=int, default=50)
 parser.add_argument('--ratio_highest_attention', type=float, default=0.5)
 parser.add_argument('--avg', type=str, default='macro')
 parser.add_argument('--dropout', type=float, default=0.01)
@@ -28,6 +28,7 @@ parser.add_argument('--nhid', type=int, default=128)
 parser.add_argument('--nhid_task', type=int, default=128)
 parser.add_argument('--nhid_tar', type=int, default=128)
 parser.add_argument('--task_type', type=str, default='classification', help='[classification, regression]')
+parser.add_argument("--load", type=bool, default= False )
 args = parser.parse_args()
 
 
@@ -63,10 +64,32 @@ def main():
     print('Initializing model...')
     model, optimizer, criterion_tar, criterion_task, best_model, best_optimizer = utils.initialize_training(prop)
     print('Model intialized...')
+    if args.load == False:
+        print('Training start...')
+        utils.training(model, optimizer, criterion_tar, criterion_task, best_model, best_optimizer, X_train_task, y_train_task, X_test, y_test, prop)
+        print('Training complete...')
+    else:
+        device = torch.device('cuda:0')  # or 'cuda:0' if using GPU
+        old_model = torch.load('train_model.pth', map_location=device)
+        state_dict = old_model.state_dict()
+        # Adjust the state dictionary to match the new model's BatchNorm sizes
+        new_state_dict = {}
 
-    print('Training start...')
-    utils.training(model, optimizer, criterion_tar, criterion_task, best_model, best_optimizer, X_train_task, y_train_task, X_test, y_test, prop)
-    print('Training complete...')
+        for key, value in state_dict.items():
+            if 'running_mean' in key or 'running_var' in key or 'weight' in key or 'bias' in key:
+                if value.shape == torch.Size([64]):  # Check if this is the problematic size
+                    new_state_dict[key] = value[:16]  # Slice to match the expected shape of 16
+                else:
+                    new_state_dict[key] = value
+            else:
+                new_state_dict[key] = value
+
+        # Load the adjusted state dictionary into the model
+        model.load_state_dict(new_state_dict, strict=False)
+        utils.training(model, optimizer, criterion_tar, criterion_task, best_model, best_optimizer, X_train_task, y_train_task, X_test, y_test, prop)
+
+        
+
     #torch.save(model,'train_model.pth')
     
     #new_model =  multitask_transformer_class.MultitaskTransformerModel(prop['task_type'], prop['device'], prop['nclasses'], prop['seq_len'], prop['batch'], \
